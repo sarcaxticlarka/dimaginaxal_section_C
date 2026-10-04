@@ -1,0 +1,9 @@
+# Private keys - never commit
+*-key.pem
+rootCA-key.pem
+*.key
+
+# macOS / Node
+.DS_Store
+node_modules/
+npm-debug.log*
