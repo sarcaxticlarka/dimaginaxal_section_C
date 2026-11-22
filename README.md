@@ -185,4 +185,19 @@ curl -I https://app.dimaginaxal.test/api/status
 | F. HTTP caching | Partly: Cache-Control header shown; 304 / cache hit still to demonstrate |
 | G. Packet capture | Partly: DNS and nginx-to-backend captured; clean client-to-443 handshake still to add |
 
-Phase 2 (backup DNS, TTL changes, firewall isolation, failover, DNS cutover) comes next.
+Phase 1 gaps (304 demo, CA trust on Mac 1 and Mac 4, Mac 3 to Mac 4 ping) are covered in Part 1 of the Phase 2 runbook.
+
+## Phase 2
+
+Step-by-step instructions for every team member: **[docs/PHASE2_RUNBOOK.md](docs/PHASE2_RUNBOOK.md)**.
+
+The Wi-Fi DHCP handed out new addresses for Phase 2:
+
+| Mac | Member | Phase 1 IP | Phase 2 IP |
+| --- | --- | --- | --- |
+| Mac 1 DNS (primary) | Md. Sajjan | 10.7.2.83 | 10.7.12.240 |
+| Mac 2 Edge nginx | Sachin Jaiswal | 10.7.1.138 | 10.7.29.80 |
+| Mac 3 Backend A + backup DNS + standby edge | Sibtain Ahmed Qureshi | 10.7.12.144 | 10.7.27.218 |
+| Mac 4 Backend B + test client | Viraj Chafale | 10.7.16.85 | 10.7.11.150 |
+
+Configs are in `config/phase2/`. The troubleshooting script is `scripts/diagnose.sh`.
