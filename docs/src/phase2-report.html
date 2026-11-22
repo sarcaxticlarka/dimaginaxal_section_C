@@ -1,0 +1,458 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Private Network Service Platform — Phase 2 Report</title>
+<style>
+  :root {
+    --ink: #1d1d1b;
+    --muted: #6b6a66;
+    --rule: #e2e0da;
+    --head: #f3f2ee;
+    --code: #f5f4f1;
+    --accent: #2f6fde;
+    --accent-soft: #e6eefc;
+    --bad: #c4433a;
+    --bad-soft: #fbeceb;
+    --good: #2f8a4f;
+    --good-soft: #e9f5ee;
+  }
+  @page { size: A4; margin: 22mm 17mm 20mm 17mm; }
+  * { box-sizing: border-box; }
+  html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body {
+    margin: 0; color: var(--ink); background: #fff;
+    font: 10.6pt/1.55 -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif;
+  }
+  h1, h2, h3 { font-family: Charter, Georgia, serif; font-weight: 400; color: var(--ink); }
+  h1 { font-size: 27pt; line-height: 1.15; margin: 0 0 12px; letter-spacing: -0.3px; }
+  h2 { font-size: 17pt; margin: 26px 0 8px; break-after: avoid; }
+  h3 { font-size: 12.5pt; margin: 18px 0 6px; break-after: avoid; }
+  p { margin: 0 0 9px; }
+  .pill { display: inline-block; background: #efeee9; border-radius: 10px; padding: 1px 9px; font-size: 9pt; margin-bottom: 10px; }
+  .lede { font-size: 11.2pt; }
+  table { width: 100%; border-collapse: collapse; margin: 8px 0 14px; font-size: 9.6pt; break-inside: auto; }
+  tr { break-inside: avoid; }
+  th { background: var(--head); color: var(--muted); font-weight: 400; text-align: left; }
+  th, td { border: 1px solid var(--rule); padding: 6px 9px; vertical-align: top; }
+  code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 8.7pt; }
+  code { background: var(--code); padding: 0 3px; border-radius: 3px; }
+  pre { background: var(--code); border-radius: 6px; padding: 10px 12px; white-space: pre-wrap; word-break: break-word; margin: 6px 0 12px; break-inside: avoid; }
+  pre code { background: none; padding: 0; }
+  ul, ol { margin: 4px 0 10px; padding-left: 22px; }
+  li { margin-bottom: 3px; }
+  figure { margin: 10px 0 14px; break-inside: avoid; }
+  figure img { display: block; max-width: 100%; border: 1px solid var(--rule); border-radius: 4px; margin: 0 auto; }
+  figure img.short { max-height: 72mm; width: auto; }
+  figure img.tall { max-height: 95mm; width: auto; }
+  figcaption { font-size: 9.4pt; margin-top: 5px; }
+  figcaption b { font-weight: 600; }
+  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: start; }
+  .diagram { border: none; }
+  .diagram svg { width: 100%; height: auto; display: block; }
+  .ok { color: var(--good); font-weight: 600; }
+  .no { color: var(--bad); font-weight: 600; }
+  .todo { color: #9a6b12; font-weight: 600; }
+  .note { border-left: 3px solid var(--rule); padding: 2px 0 2px 12px; color: var(--muted); margin: 8px 0 12px; }
+  .pb { break-before: page; }
+  .avoid { break-inside: avoid; }
+</style>
+</head>
+<body>
+
+<h1>Private Network Service Platform — Phase 2 Report</h1>
+<span class="pill">Nov 23, 2026</span>
+<p class="lede">Computer Networks course project. Phase 2: Harden, Recover and Troubleshoot. Team <b>dimaginaxal</b> (Section C), domain <b>dimaginaxal.test</b>.</p>
+
+<table>
+  <tr><th>Member</th><th>Enrolment</th><th>Machine</th><th>Role in Phase 2</th><th>IP address</th></tr>
+  <tr><td>Md. Sajjan</td><td>2401010272</td><td>Mac 1</td><td>Primary DNS (dnsmasq) + test client</td><td>10.7.12.240</td></tr>
+  <tr><td>Sachin Jaiswal</td><td>2401010399</td><td>Mac 2</td><td>Edge: nginx, TLS, load balancing, failover</td><td>10.7.29.80</td></tr>
+  <tr><td>Sibtain Ahmed Qureshi</td><td>2401010454</td><td>Mac 3</td><td>Backend A, backup DNS, standby edge</td><td>10.7.27.218</td></tr>
+  <tr><td>Viraj Chafale</td><td>2401020076</td><td>Mac 4</td><td>Backend B + main test client</td><td>10.7.11.150</td></tr>
+</table>
+
+<h2>1. Summary</h2>
+<p>Phase 2 kept the Phase 1 network and made it survive failures. We added a <b>backup DNS server</b>, gave our records a <b>30-second TTL</b>, locked the backends behind a <b>firewall</b> so only the edge can reach them, taught nginx to <b>route around a dead backend</b>, and moved the whole site to a <b>standby edge</b> by changing one DNS record.</p>
+<p>Every extension A–E was demonstrated live on 22–23 November 2026 and is backed by a screenshot in <code>evidence/phase2/</code>. The two Phase 1 gaps that were about the setup itself are also closed: the backends now send an <code>ETag</code> and answer <b>304 Not Modified</b>, and HTTP/2 is enabled at the edge.</p>
+<p>The clearest single result: when Backend A was stopped, nginx's log recorded <code>upstream=10.7.27.218:3001, 10.7.11.150:3002 upstream_status=502, 200</code>. nginx tried A, failed, retried the same request on B, and the client still got <b>200</b>. The user never saw the failure.</p>
+<p>What is still open is the Extension F practice runs and a few extra screenshots, listed in Section 11.</p>
+
+<h2 class="pb">2. Network topology in Phase 2</h2>
+<figure class="diagram">
+<svg viewBox="0 0 760 300" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system, Helvetica Neue, Arial, sans-serif">
+  <text x="20" y="18" font-size="12.5" font-weight="600" fill="#1d1d1b">Same four Macs, new roles: two DNS servers, two possible edges, firewalled backends</text>
+  <rect x="285" y="34" width="190" height="46" rx="6" fill="#efeee9" stroke="#d6d4cd"/>
+  <text x="380" y="54" font-size="11.5" font-weight="600" text-anchor="middle" fill="#1d1d1b">Wi-Fi router / gateway</text>
+  <text x="380" y="70" font-size="10" text-anchor="middle" fill="#6b6a66">10.7.0.1</text>
+  <line x1="380" y1="80" x2="380" y2="112" stroke="#cfcdc6" stroke-width="1.5"/>
+  <text x="20" y="106" font-size="10" fill="#6b6a66">Private LAN 10.7.0.0/19 (en0)</text>
+  <line x1="20" y1="112" x2="740" y2="112" stroke="#cfcdc6" stroke-width="2"/>
+  <g stroke="#cfcdc6" stroke-width="1.5">
+    <line x1="105" y1="112" x2="105" y2="140"/><line x1="290" y1="112" x2="290" y2="140"/>
+    <line x1="475" y1="112" x2="475" y2="140"/><line x1="660" y1="112" x2="660" y2="140"/>
+  </g>
+  <!-- Mac 1 -->
+  <rect x="22" y="140" width="166" height="118" rx="6" fill="#fff" stroke="#d6d4cd"/>
+  <text x="34" y="160" font-size="11.5" font-weight="600" fill="#1d1d1b">Mac 1 · Primary DNS</text>
+  <text x="34" y="176" font-size="10" fill="#6b6a66">Md. Sajjan</text>
+  <text x="34" y="191" font-size="10" fill="#1d1d1b">10.7.12.240</text>
+  <text x="34" y="209" font-size="10" fill="#1d1d1b">dnsmasq · UDP 53</text>
+  <text x="34" y="224" font-size="10" fill="#1d1d1b">local-ttl = 30</text>
+  <text x="34" y="244" font-size="9.5" fill="#6b6a66">test client</text>
+  <!-- Mac 2 -->
+  <rect x="207" y="140" width="166" height="118" rx="6" fill="#e6eefc" stroke="#2f6fde" stroke-width="1.6"/>
+  <text x="219" y="160" font-size="11.5" font-weight="600" fill="#1d1d1b">Mac 2 · Edge</text>
+  <text x="219" y="176" font-size="10" fill="#6b6a66">Sachin Jaiswal</text>
+  <text x="219" y="191" font-size="10" fill="#1d1d1b">10.7.29.80</text>
+  <text x="219" y="209" font-size="10" fill="#1d1d1b">nginx · TCP 80, 443</text>
+  <text x="219" y="224" font-size="10" fill="#1d1d1b">failover + retry</text>
+  <text x="219" y="244" font-size="9.5" fill="#2f6fde">X-Edge: mac2-primary</text>
+  <!-- Mac 3 -->
+  <rect x="392" y="140" width="166" height="118" rx="6" fill="#fff" stroke="#d6d4cd"/>
+  <text x="404" y="160" font-size="11.5" font-weight="600" fill="#1d1d1b">Mac 3 · Backend A</text>
+  <text x="404" y="176" font-size="10" fill="#6b6a66">Sibtain Ahmed Qureshi</text>
+  <text x="404" y="191" font-size="10" fill="#1d1d1b">10.7.27.218</text>
+  <text x="404" y="209" font-size="10" fill="#1d1d1b">Node.js · TCP 3001</text>
+  <text x="404" y="224" font-size="10" fill="#1d1d1b">+ backup dnsmasq</text>
+  <text x="404" y="244" font-size="9.5" fill="#6b6a66">+ standby nginx (Ext. E)</text>
+  <!-- Mac 4 -->
+  <rect x="577" y="140" width="166" height="118" rx="6" fill="#fff" stroke="#d6d4cd"/>
+  <text x="589" y="160" font-size="11.5" font-weight="600" fill="#1d1d1b">Mac 4 · Backend B</text>
+  <text x="589" y="176" font-size="10" fill="#6b6a66">Viraj Chafale</text>
+  <text x="589" y="191" font-size="10" fill="#1d1d1b">10.7.11.150</text>
+  <text x="589" y="209" font-size="10" fill="#1d1d1b">Node.js · TCP 3002</text>
+  <text x="589" y="224" font-size="10" fill="#1d1d1b">test client</text>
+  <!-- firewall badges -->
+  <rect x="404" y="266" width="154" height="22" rx="11" fill="#fbeceb" stroke="#e7b9b5"/>
+  <text x="481" y="281" font-size="9.5" text-anchor="middle" fill="#c4433a">pf: :3001 only from Mac 2</text>
+  <rect x="589" y="266" width="154" height="22" rx="11" fill="#fbeceb" stroke="#e7b9b5"/>
+  <text x="666" y="281" font-size="9.5" text-anchor="middle" fill="#c4433a">pf: :3002 only from Mac 2</text>
+</svg>
+<figcaption>Phase 2 topology · the DHCP lease gave every Mac a new address since Phase 1</figcaption>
+</figure>
+
+<table>
+  <tr><th>Mac</th><th>Phase 1 IP</th><th>Phase 2 IP</th><th>New in Phase 2</th><th>Cloud equivalent</th></tr>
+  <tr><td>Mac 1</td><td>10.7.2.83</td><td>10.7.12.240</td><td>TTL 30 s, <code>ttl.dimaginaxal.test</code> test record</td><td>Route 53 primary name server</td></tr>
+  <tr><td>Mac 2</td><td>10.7.1.138</td><td>10.7.29.80</td><td>Passive health checks, retry, HTTP/2, access log</td><td>AWS ALB with health checks</td></tr>
+  <tr><td>Mac 3</td><td>10.7.12.144</td><td>10.7.27.218</td><td>Backup DNS, standby edge, pf firewall</td><td>Second name server / standby LB / security group</td></tr>
+  <tr><td>Mac 4</td><td>10.7.16.85</td><td>10.7.11.150</td><td>pf firewall, main test client</td><td>Security group on an app instance</td></tr>
+</table>
+<p>All four addresses are still inside one <b>/19</b> (10.7.0.0 – 10.7.31.255), so the Phase 1 topology still holds. Only the configs had to change.</p>
+
+<h2>3. What changed from Phase 1</h2>
+<table>
+  <tr><th style="width:31%">File</th><th>Change</th><th style="width:22%">For</th></tr>
+  <tr><td><code>config/phase2/dnsmasq-primary.conf</code></td><td><code>local-ttl=30</code> (Phase 1 used 0), test record <code>ttl.dimaginaxal.test</code>, <code>log-queries</code></td><td>Ext. B</td></tr>
+  <tr><td><code>config/phase2/dnsmasq-backup.conf</code></td><td>New. Same records, listening on Mac 3</td><td>Ext. A</td></tr>
+  <tr><td><code>config/phase2/nginx.conf</code></td><td><code>max_fails=1 fail_timeout=10s</code>, <code>proxy_next_upstream</code>, 2 s connect timeout, <code>X-Edge</code> header, upstream access log, <code>http2 on</code></td><td>Ext. D, E</td></tr>
+  <tr><td><code>config/phase2/nginx-standby.conf</code></td><td>New. Identical except <code>X-Edge: mac3-standby</code></td><td>Ext. E</td></tr>
+  <tr><td><code>config/phase2/pf-backend-a.conf</code>, <code>-b.conf</code></td><td>New. Only 10.7.29.80 may open TCP to 3001 / 3002</td><td>Ext. C</td></tr>
+  <tr><td><code>backend-a/</code>, <code>backend-b/server.js</code></td><td><code>ETag</code> + <code>If-None-Match</code> → 304; new <code>/api/info</code> with the same body on A and B</td><td>Phase 1 Task F gap</td></tr>
+  <tr><td><code>scripts/diagnose.sh</code></td><td>New. Checks DNS → IP → TCP → TLS → HTTP → backends and names the first broken layer</td><td>Ext. F</td></tr>
+</table>
+
+<h3>Phase 1 caching gap: 304 Not Modified</h3>
+<p>Each backend now hashes its response body into an <code>ETag</code>. If the client sends that value back in <code>If-None-Match</code>, the backend answers 304 with no body. <code>/api/info</code> returns the same body on A and B, so the ETag matches whichever backend nginx picks.</p>
+<figure>
+  <img src="../../evidence/phase2/01-304-not-modified.png">
+  <figcaption><b>Figure 1. Conditional request through the edge returns <code>HTTP/2 304</code>.</b> Also note <code>HTTP/2</code>: the edge now speaks HTTP/2 to clients.</figcaption>
+</figure>
+<table>
+  <tr><th>Case</th><th>What happens</th><th>Network cost</th></tr>
+  <tr><td>Fresh cache hit</td><td>Copy younger than <code>max-age=60</code> is reused</td><td>No request at all</td></tr>
+  <tr><td>Conditional request</td><td>Client asks "still ETag X?" → <b>304</b></td><td>Headers only, no body</td></tr>
+  <tr><td>Full request</td><td>No copy, or the content changed → 200</td><td>Headers and full body</td></tr>
+</table>
+
+<h2 class="pb">4. Extension A: Backup DNS resolver</h2>
+<p>dnsmasq now runs on two Macs with identical records: Mac 1 (primary) and Mac 3 (backup). Clients list both:</p>
+<pre><code>sudo networksetup -setdnsservers Wi-Fi 10.7.12.240 10.7.27.218</code></pre>
+<p>Before the test, <code>dig @10.7.12.240</code> and <code>dig @10.7.27.218</code> both returned <code>10.7.29.80</code>. Then Sajjan stopped dnsmasq on Mac 1.</p>
+<div class="pair">
+  <figure><img src="../../evidence/phase2/A1-backup-dns-answers-primary-down.png"><figcaption><b>Figure 2.</b> Primary stopped (00:16:00): answer still <code>10.7.29.80</code>, <b>SERVER 10.7.27.218</b>, 19 ms.</figcaption></figure>
+  <figure><img src="../../evidence/phase2/A2-backup-dns-answers-again.png"><figcaption><b>Figure 3.</b> 40 s later (00:16:40): still answered by the backup, 92 ms.</figcaption></figure>
+</div>
+<figure>
+  <img class="short" src="../../evidence/phase2/A3-primary-dns-restored.png">
+  <figcaption><b>Figure 4.</b> Primary restarted (00:18:42): <b>SERVER 10.7.12.240</b> answers again.</figcaption>
+</figure>
+<p>The answer section is identical in all three, including the new TTL of <b>30</b>. The client cannot tell which server answered, which is the point of redundancy. The flag <code>aa</code> (authoritative answer) shows both servers answer from their own records, not by forwarding.</p>
+<h3>DNS failure versus application failure</h3>
+<table>
+  <tr><th>What broke</th><th><code>dig</code></th><th><code>curl</code></th><th>Meaning</th></tr>
+  <tr><td>Both DNS servers</td><td>times out</td><td><code>(6) Could not resolve host</code></td><td>Client cannot even find the edge</td></tr>
+  <tr><td>Both backends</td><td>answers 10.7.29.80</td><td><code>502 Bad Gateway</code> (Figure 15)</td><td>Name, TCP and TLS fine. Nothing behind the edge</td></tr>
+</table>
+<p>We met the first case for real: Mac 4 had no DNS server set and failed with exactly <code>curl: (6) Could not resolve host</code> (Section 10).</p>
+
+<h2>5. Extension B: TTL and a controlled record change</h2>
+<p>Both DNS servers now send <code>local-ttl=30</code>. To avoid disturbing the real site we used a separate name, <code>ttl.dimaginaxal.test</code>, and watched it through the macOS resolver cache, the same lookup path that browsers and curl use:</p>
+<pre><code>while true; do printf "%s  " "$(date +%T)"
+  dscacheutil -q host -a name ttl.dimaginaxal.test | awk '/ip_address/{print $2}'; sleep 3; done</code></pre>
+<p>The record was changed on <b>both</b> servers from <code>10.7.29.80</code> to <code>10.7.11.150</code>, then later changed back.</p>
+<div class="pair">
+  <figure><img class="tall" src="../../evidence/phase2/B1-ttl-record-change-after-30s.png"><figcaption><b>Figure 5.</b> Change: old address until 00:25:24, new address from <b>00:25:27</b>.</figcaption></figure>
+  <figure><img class="tall" src="../../evidence/phase2/B2-ttl-record-revert.png"><figcaption><b>Figure 6.</b> Revert: cached <code>10.7.11.150</code> until 00:30:52, back to <code>10.7.29.80</code> at <b>00:30:55</b>.</figcaption></figure>
+</div>
+<p><code>dig</code> asks the server directly and skips the OS cache, so it showed the new value at once. Applications kept the cached answer for up to one TTL. Flushing with <code>sudo dscacheutil -flushcache; sudo killall -HUP mDNSResponder</code> makes the next lookup fetch the new value immediately.</p>
+<p class="note">In production a team lowers the TTL (for example from 3600 to 60) a day before a migration, so every cache expires quickly at cut-over time, and raises it again afterwards.</p>
+
+<h2 class="pb">6. Extension C: Service isolation with pf</h2>
+<p>On Mac 3 and Mac 4 we first saved a rollback copy (<code>pfctl -s info</code>, <code>pfctl -sr</code>, <code>/etc/pf.conf</code>), then loaded three rules:</p>
+<pre><code>edge = "10.7.29.80"
+pass in quick on lo0 all
+pass in quick proto tcp from $edge to any port 3001      # 3002 on Mac 4
+block drop in quick proto tcp from any to any port 3001</code></pre>
+<figure>
+  <img src="../../evidence/phase2/C1-mac1-blocked-port-3001-timeout.png">
+  <figcaption><b>Figure 7.</b> Mac 1 still resolves both names, but <code>curl http://10.7.27.218:3001</code> fails: <b>Timeout was reached after 5006 ms</b>.</figcaption>
+</figure>
+<div class="pair">
+  <figure><img src="../../evidence/phase2/C2-mac1-ping-mac3-still-works.png"><figcaption><b>Figure 8.</b> Mac 1 can still ping Mac 3: 0% loss. Only the port is blocked.</figcaption></figure>
+  <figure><img src="../../evidence/phase2/C3-mac1-ping-mac4-still-works.png"><figcaption><b>Figure 9.</b> Mac 1 → Mac 4 also reachable (slow Wi-Fi: up to 1874 ms).</figcaption></figure>
+</div>
+<figure>
+  <img src="../../evidence/phase2/C4-mac2-edge-still-reaches-backends.png">
+  <figcaption><b>Figure 10.</b> From Mac 2, the allowed edge, both backends still answer directly.</figcaption>
+</figure>
+<figure>
+  <img src="../../evidence/phase2/C5-rollback-mac1-reaches-3001-again.png">
+  <figcaption><b>Figure 11.</b> After the rollback (<code>sudo pfctl -f /etc/pf.conf</code>), Mac 1 reaches port 3001 again.</figcaption>
+</figure>
+<p>The blocked client sees a <b>timeout</b>, not "connection refused", because <code>block drop</code> throws the SYN away silently. <code>block return</code> would send a TCP RST, and curl would report "refused" at once. Ping still works because ICMP is a different protocol. The firewall filters by protocol and port, not by host.</p>
+
+<h2 class="pb">7. Extension D: High-availability failover</h2>
+<p>The Phase 2 nginx config adds passive health checks and a retry:</p>
+<pre><code>upstream backend_pool {
+    server 10.7.27.218:3001 max_fails=1 fail_timeout=10s;
+    server 10.7.11.150:3002 max_fails=1 fail_timeout=10s;
+}
+location / {
+    proxy_pass http://backend_pool;
+    proxy_connect_timeout 2s;
+    proxy_next_upstream error timeout http_502 http_503 http_504;
+    proxy_next_upstream_tries 2;
+}</code></pre>
+
+<figure class="diagram">
+<svg viewBox="0 0 760 330" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system, Helvetica Neue, Arial, sans-serif">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#9b998f"/></marker>
+    <marker id="ab" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#2f6fde"/></marker>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#c4433a"/></marker>
+  </defs>
+  <text x="20" y="18" font-size="12.5" font-weight="600" fill="#1d1d1b">One request while Backend A is down: nginx retries on B, so the client still gets 200</text>
+  <rect x="30" y="32" width="150" height="40" rx="6" fill="#fff" stroke="#d6d4cd"/><text x="105" y="50" font-size="11" font-weight="600" text-anchor="middle">Client</text><text x="105" y="64" font-size="9.5" text-anchor="middle" fill="#6b6a66">Mac 2 / Mac 4</text>
+  <rect x="215" y="32" width="150" height="40" rx="6" fill="#e6eefc" stroke="#2f6fde" stroke-width="1.5"/><text x="290" y="50" font-size="11" font-weight="600" text-anchor="middle">Mac 2 · nginx</text><text x="290" y="64" font-size="9.5" text-anchor="middle" fill="#6b6a66">10.7.29.80</text>
+  <rect x="400" y="32" width="150" height="40" rx="6" fill="#fbeceb" stroke="#e7b9b5"/><text x="475" y="50" font-size="11" font-weight="600" text-anchor="middle">Backend A (stopped)</text><text x="475" y="64" font-size="9.5" text-anchor="middle" fill="#6b6a66">10.7.27.218:3001</text>
+  <rect x="585" y="32" width="150" height="40" rx="6" fill="#fff" stroke="#d6d4cd"/><text x="660" y="50" font-size="11" font-weight="600" text-anchor="middle">Backend B</text><text x="660" y="64" font-size="9.5" text-anchor="middle" fill="#6b6a66">10.7.11.150:3002</text>
+  <g stroke="#e2e0da" stroke-dasharray="3 4"><line x1="105" y1="72" x2="105" y2="315"/><line x1="290" y1="72" x2="290" y2="315"/><line x1="475" y1="72" x2="475" y2="315"/><line x1="660" y1="72" x2="660" y2="315"/></g>
+  <g font-size="10.5" fill="#6b6a66"><text x="12" y="104">1</text><text x="12" y="146">2</text><text x="12" y="188">3</text><text x="12" y="230">4</text><text x="12" y="272">5</text></g>
+  <line x1="105" y1="108" x2="288" y2="108" stroke="#2f6fde" stroke-width="2" marker-end="url(#ab)"/><text x="115" y="100" font-size="10.5">GET /api/status (TLS)</text>
+  <line x1="290" y1="150" x2="473" y2="150" stroke="#9b998f" stroke-width="1.5" marker-end="url(#a)"/><text x="300" y="142" font-size="10.5">TCP SYN to :3001</text>
+  <line x1="475" y1="164" x2="292" y2="164" stroke="#c4433a" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#ar)"/><text x="300" y="180" font-size="10.5" fill="#c4433a">refused → counted as 502, A marked down for 10 s</text>
+  <line x1="290" y1="234" x2="658" y2="234" stroke="#9b998f" stroke-width="1.5" marker-end="url(#a)"/><text x="300" y="226" font-size="10.5">same request retried on B (proxy_next_upstream)</text>
+  <line x1="660" y1="250" x2="292" y2="250" stroke="#9b998f" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#a)"/><text x="480" y="266" font-size="10.5">200 OK, X-Backend: B</text>
+  <line x1="290" y1="290" x2="107" y2="290" stroke="#2f6fde" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#ab)"/><text x="115" y="282" font-size="10.5">200 OK (TLS)</text>
+  <text x="300" y="306" font-size="10" fill="#6b6a66">log: upstream=10.7.27.218:3001, 10.7.11.150:3002  upstream_status=502, 200</text>
+</svg>
+<figcaption>Failover sequence · what Figure 14 records</figcaption>
+</figure>
+
+<div class="pair">
+  <figure><img src="../../evidence/phase2/D1-before-watcher-A-B.png"><figcaption><b>Figure 12.</b> Before: A and B alternate once per second.</figcaption></figure>
+  <figure><img src="../../evidence/phase2/D2-before-edge-log-A-B.png"><figcaption><b>Figure 13.</b> Edge log: upstream alternates between :3001 and :3002.</figcaption></figure>
+</div>
+<figure>
+  <img src="../../evidence/phase2/D3-edge-log-retry-A-502-then-B.png">
+  <figcaption><b>Figure 14.</b> Backend A stopped. At 00:45:34 one request lists <b>two upstreams</b> with statuses <b>502, 200</b>: A failed, the retry on B succeeded, and the client received 200.</figcaption>
+</figure>
+<div class="pair">
+  <figure><img src="../../evidence/phase2/D4-backend-A-down-only-B.png"><figcaption><b>Figure 15a.</b> While A is down: every answer is B, with no errors.</figcaption></figure>
+  <figure><img src="../../evidence/phase2/D5-backend-A-restored-watcher.png"><figcaption><b>Figure 15b.</b> A restarted: alternation resumes from 00:46:44.</figcaption></figure>
+</div>
+<figure>
+  <img class="tall" src="../../evidence/phase2/D6-backend-A-restored-edge-log.png">
+  <figcaption><b>Figure 16.</b> Edge log after the restart: <code>10.7.27.218:3001</code> is back in the rotation once <code>fail_timeout</code> (10 s) passed.</figcaption>
+</figure>
+<div class="pair">
+  <figure><img src="../../evidence/phase2/D7-both-backends-down-502.png"><figcaption><b>Figure 17.</b> B then A stopped (~00:48:10): nginx itself answers <b>502 Bad Gateway</b>.</figcaption></figure>
+  <figure><img src="../../evidence/phase2/D8-both-backends-down-502-continued.png"><figcaption><b>Figure 18.</b> 502 every second. DNS and TLS still worked, so the fault is clearly behind the edge.</figcaption></figure>
+</div>
+
+<h3>The remaining single point of failure</h3>
+<p>The edge itself. If Mac 2 dies, DNS still hands out 10.7.29.80 and every client fails, even with both backends healthy. Ways to remove it:</p>
+<ul>
+  <li><b>Floating virtual IP</b> (VRRP / keepalived): two edges share one IP, and the standby takes it over in about a second.</li>
+  <li><b>Health-checked DNS failover</b> (Route 53 failover records): automatic but limited by the TTL. Extension E is a manual version of this.</li>
+  <li><b>Managed cloud load balancer</b> (AWS ALB) across several availability zones, so no single machine is the entry point.</li>
+</ul>
+
+<h2 class="pb">8. Extension E: DNS-based edge cutover</h2>
+<p>Mac 3 ran a standby nginx with the same certificate and key as Mac 2 and an identical config, except for <code>X-Edge: mac3-standby</code>. Before touching DNS we tested it directly by pinning the name to Mac 3 for one request:</p>
+<pre><code>$ curl -sI --resolve app.dimaginaxal.test:443:10.7.27.218 https://app.dimaginaxal.test/api/status
+HTTP/2 200
+x-backend: A
+x-edge: mac3-standby</code></pre>
+<p>The certificate validated on the standby with no warning, because a certificate is bound to the <b>name</b>, not to an IP address.</p>
+<p>Mac 4 then ran a watcher printing the <code>x-edge</code> header every 2 s, so its cache held the old answer. Sajjan and Sibtain changed <code>app</code> and <code>api</code> to <code>10.7.27.218</code> on both DNS servers.</p>
+<figure>
+  <img class="tall" src="../../evidence/phase2/E1-cutover-cached-client-mac2-to-mac3.png">
+  <figcaption><b>Figure 19.</b> Cached client (Mac 4): <b>mac2-primary</b> until 01:19:46, <b>mac3-standby</b> from 01:19:48, about 30 s (one TTL) after the record changed.</figcaption>
+</figure>
+<p>Mac 2's nginx stayed running throughout, so clients still holding the old answer were served normally while their caches drained. Nobody saw an outage. A new client that flushed its cache reached the standby at once. Afterwards the records were reverted, the standby was stopped, and the copied private key was deleted from Mac 3.</p>
+
+<h2>9. Extension F: Troubleshooting method</h2>
+<p>For the faculty-injected fault we check one layer at a time and stop at the first failure. <code>scripts/diagnose.sh</code> runs the same sequence and names the layer:</p>
+<table>
+  <tr><th>Layer</th><th>Check</th><th>Healthy</th><th>Typical faults</th></tr>
+  <tr><td>DNS</td><td><code>dig app.dimaginaxal.test</code></td><td>10.7.29.80 from .12.240 or .27.218</td><td>dnsmasq stopped, wrong record, client DNS changed</td></tr>
+  <tr><td>IP</td><td><code>ping 10.7.29.80</code></td><td>replies</td><td>wrong IP in record, host off the LAN</td></tr>
+  <tr><td>TCP</td><td><code>nc -vz app.dimaginaxal.test 443</code></td><td>succeeded</td><td>nginx stopped, wrong <code>listen</code> port, firewall</td></tr>
+  <tr><td>TLS</td><td><code>curl -v https://…</code></td><td>TLSv1.3, verify ok</td><td>CA not trusted, wrong cert / <code>server_name</code></td></tr>
+  <tr><td>HTTP</td><td><code>curl -sI https://…/api/status</code></td><td>200, X-Backend</td><td>502: upstream wrong / backends down</td></tr>
+  <tr><td>Backend</td><td>from Mac 2: <code>curl http://10.7.27.218:3001/…</code></td><td>JSON</td><td>process stopped, bound to 127.0.0.1, pf</td></tr>
+</table>
+<p class="note">Practice runs, where one member injects a fault and another diagnoses it out loud, are still to be recorded (Section 11). The real faults we diagnosed while building Phase 2 are in Section 10.</p>
+
+<h2 class="pb">10. Troubleshooting findings</h2>
+<p>None of these were planned. Each looked at first like "it doesn't work", and each turned out to sit at one specific layer.</p>
+<table>
+  <tr><th style="width:24%">Problem</th><th style="width:28%">Symptom</th><th style="width:12%">Layer</th><th>Cause and fix</th></tr>
+  <tr><td>DHCP gave new IPs</td><td>Phase 1 configs pointed at dead addresses</td><td>IP</td><td>Leases changed since October. All Phase 2 configs updated. Infrastructure should have reserved addresses.</td></tr>
+  <tr><td>Client DNS set before resolvers ran</td><td><code>dig</code> timed out; <code>git push</code>: <code>Could not resolve host: github.com</code></td><td>DNS</td><td>Mac 2 depended on DNS servers that were not up yet. Reset to the default, re-applied once both answered.</td></tr>
+  <tr><td>No DNS servers on Mac 4</td><td><code>curl: (6) Could not resolve host</code>, though the CA was trusted</td><td>DNS (client)</td><td><code>networksetup -setdnsservers Wi-Fi 10.7.12.240 10.7.27.218</code></td></tr>
+  <tr><td>VPN resolver on Mac 2</td><td><code>.test</code> names returned NXDOMAIN via <code>100.100.100.100</code></td><td>DNS</td><td>Tailscale's DNS overrides ours. Turn it off for demos.</td></tr>
+  <tr><td>dnsmasq missing on Mac 3</td><td><code>sudo: dnsmasq: command not found</code></td><td>Setup</td><td><code>brew install dnsmasq</code>, run with its full path under sudo.</td></tr>
+  <tr><td>Standby nginx "failed"</td><td><code>bind() to 0.0.0.0:443 failed (48: Address already in use)</code></td><td>Transport</td><td><code>lsof</code> showed nginx was already listening from the first start. Use <code>nginx -s reload</code>.</td></tr>
+  <tr><td>Typo in test URL</td><td><code>{"error":"Not Found"}</code> six times</td><td>Application</td><td>Path became <code>/api/status;</code>. DNS, TCP, TLS and the proxy were all fine; only the path was wrong.</td></tr>
+  <tr><td>Watcher printed only timestamps</td><td>No <code>x-edge</code> line on Mac 4</td><td>DNS</td><td><code>curl -s</code> hid the error. Re-running without <code>-s</code> showed error 6. Always remove silent flags when diagnosing.</td></tr>
+  <tr><td>Unstable Wi-Fi</td><td>Ping RTT up to 1874 ms (Mac 4), ~500 ms (Mac 1)</td><td>Link</td><td>Laptop power saving on shared Wi-Fi. Keep machines plugged in for the demo.</td></tr>
+</table>
+
+<h2 class="pb">11. Phase 2 status</h2>
+<table>
+  <tr><th>Item</th><th>Status</th><th>Evidence</th><th>Still to add</th></tr>
+  <tr><td>304 / ETag (Phase 1 gap)</td><td class="ok">Done</td><td>Figure 1</td><td>Browser "(memory cache)" screenshot</td></tr>
+  <tr><td>A. Backup DNS</td><td class="ok">Done</td><td>Figures 2–4</td><td>"Before" <code>dig</code> showing SERVER 10.7.12.240</td></tr>
+  <tr><td>B. TTL and record change</td><td class="ok">Done</td><td>Figures 5–6</td><td>Manual cache flush switching instantly</td></tr>
+  <tr><td>C. Service isolation</td><td class="ok">Done</td><td>Figures 7–11</td><td><code>pfctl -sr</code> output; Mac 1 → :3002 timeout</td></tr>
+  <tr><td>D. HA failover</td><td class="ok">Done</td><td>Figures 12–18</td><td></td></tr>
+  <tr><td>E. Edge cutover</td><td class="ok">Done</td><td>Figure 19</td><td>New client reaching the standby at once</td></tr>
+  <tr><td>F. Troubleshooting</td><td class="todo">Method ready</td><td>Section 9, 10</td><td>At least three recorded practice faults</td></tr>
+  <tr><td>Phase 1 leftovers</td><td class="todo">Open</td><td></td><td>Mac 3 → Mac 4 ping; full <code>curl -v</code>; client → :443 Wireshark capture</td></tr>
+</table>
+
+<h2>12. What we learned</h2>
+<ul>
+  <li><b>Redundancy is only as good as consistency (A).</b> The backup answered so seamlessly that the client could not tell. The real risk is two servers holding different records, so every change went to both.</li>
+  <li><b>TTL decides how fast a change spreads (B, E).</b> <code>dig</code> saw new records instantly while applications waited up to 30 s. A cutover is never faster than the TTL that was in place before it.</li>
+  <li><b>Reachable is not the same as allowed (C).</b> Mac 1 could ping Mac 3 but not open port 3001. A port-level firewall shrinks what can be attacked without breaking the network. This is what security groups do in the cloud.</li>
+  <li><b>A load balancer turns a crash into a retry (D).</b> One log line, <code>502, 200</code>, shows a failure that no user ever saw. But the balancer itself is now the single point of failure.</li>
+  <li><b>Diagnose by layer and read the exact error (F).</b> curl's error codes (6 DNS, 7 refused, 28 timeout, 60 certificate) and HTTP 502 each pointed straight to a layer. Our worst delays came from flags like <code>-s</code> that hid them.</li>
+</ul>
+
+<h2 class="pb">Appendix</h2>
+<h3>A. dnsmasq-primary.conf (Mac 1). The backup on Mac 3 differs only in <code>listen-address</code></h3>
+<pre><code>port=53
+listen-address=127.0.0.1,10.7.12.240
+bind-interfaces
+local-ttl=30
+
+address=/app.dimaginaxal.test/10.7.29.80
+address=/api.dimaginaxal.test/10.7.29.80
+address=/ttl.dimaginaxal.test/10.7.29.80
+
+no-resolv
+server=1.1.1.1
+server=8.8.8.8
+cache-size=1000
+log-queries</code></pre>
+
+<h3>B. pf-backend-a.conf (Mac 3). Mac 4 uses port 3002</h3>
+<pre><code>edge = "10.7.29.80"
+pass in quick on lo0 all
+pass in quick proto tcp from $edge to any port 3001
+block drop in quick proto tcp from any to any port 3001
+
+# load:     sudo pfctl -f config/phase2/pf-backend-a.conf &amp;&amp; sudo pfctl -e
+# rollback: sudo pfctl -f /etc/pf.conf   (and pfctl -d if pf was disabled before)</code></pre>
+
+<h3>C. ETag handling added to both backends</h3>
+<pre><code>function sendJson(req, res, status, obj) {
+    const body = JSON.stringify(obj);
+    const etag = '"' + crypto.createHash("sha1").update(body).digest("hex").slice(0, 16) + '"';
+    res.setHeader("ETag", etag);
+    if (status === 200 &amp;&amp; req.headers["if-none-match"] === etag) {
+        res.writeHead(304);       // client's copy is current: headers only
+        res.end();
+        return;
+    }
+    res.writeHead(status);
+    res.end(body);
+}</code></pre>
+<p>Full source: <code>backend-a/server.js</code>, <code>backend-b/server.js</code> (identical except the port and letter).</p>
+
+<h3 class="pb">D. nginx.conf (Mac 2, Phase 2)</h3>
+<pre><code>worker_processes 1;
+events { worker_connections 1024; }
+
+http {
+    include mime.types;
+    default_type application/octet-stream;
+    sendfile on;
+    keepalive_timeout 65;
+
+    log_format edge '$remote_addr [$time_local] "$request" $status '
+                    'upstream=$upstream_addr upstream_status=$upstream_status';
+    access_log /opt/homebrew/var/log/nginx/edge.log edge;
+
+    upstream backend_pool {
+        server 10.7.27.218:3001 max_fails=1 fail_timeout=10s;
+        server 10.7.11.150:3002 max_fails=1 fail_timeout=10s;
+    }
+
+    server {
+        listen 80;
+        server_name app.dimaginaxal.test;
+        return 301 https://$host$request_uri;
+    }
+
+    server {
+        listen 443 ssl;
+        http2 on;
+        server_name app.dimaginaxal.test;
+        ssl_certificate     /opt/homebrew/etc/nginx/certs/app.dimaginaxal.test.pem;
+        ssl_certificate_key /opt/homebrew/etc/nginx/certs/app.dimaginaxal.test-key.pem;
+        ssl_protocols TLSv1.2 TLSv1.3;
+
+        add_header X-Edge "mac2-primary" always;   # "mac3-standby" on Mac 3
+
+        location / {
+            proxy_pass http://backend_pool;
+            proxy_connect_timeout 2s;
+            proxy_read_timeout 5s;
+            proxy_next_upstream error timeout http_502 http_503 http_504;
+            proxy_next_upstream_tries 2;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+    }
+}</code></pre>
+
+<h3>E. Commands used in the demos</h3>
+<table>
+  <tr><th>Purpose</th><th>Command</th></tr>
+  <tr><td>Load-balancing / failover watcher</td><td><code>while true; do curl -s https://app.dimaginaxal.test/api/status; echo "  $(date +%T)"; sleep 1; done</code></td></tr>
+  <tr><td>Which edge answered</td><td><code>curl -s -D - -o /dev/null https://app.dimaginaxal.test/api/status | grep -i x-edge</code></td></tr>
+  <tr><td>Flush macOS DNS cache</td><td><code>sudo dscacheutil -flushcache; sudo killall -HUP mDNSResponder</code></td></tr>
+  <tr><td>Test standby without DNS</td><td><code>curl -sI --resolve app.dimaginaxal.test:443:10.7.27.218 https://app.dimaginaxal.test/api/status</code></td></tr>
+  <tr><td>Layer-by-layer diagnosis</td><td><code>./scripts/diagnose.sh</code></td></tr>
+</table>
+
+</body>
+</html>
